@@ -2,8 +2,35 @@ const BUTTON_ATTR = 'data-quick-reply-btn';
 const PANEL_ATTR = 'data-quick-reply-panel';
 
 function getTweetText(article) {
-  const textEl = article.querySelector('[data-testid="tweetText"]');
-  return textEl?.innerText?.trim() || '';
+  const inlineReply = article.querySelector('[data-testid="inline_reply_offscreen"]');
+  const texts = [];
+  const seen = new Set();
+
+  for (const el of article.querySelectorAll('[data-testid="tweetText"]')) {
+    if (inlineReply?.contains(el)) continue;
+
+    const text = el.innerText?.trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    texts.push(text);
+  }
+
+  if (texts.length === 0) return '';
+  if (texts.length === 1) return texts[0];
+
+  const socialContext = article.querySelector('[data-testid="socialContext"]')?.innerText?.trim() || '';
+  const isRepost = /repost/i.test(socialContext);
+  const hasQuoteCard = !!article.querySelector('[data-testid="quoteTweet"], [data-testid="card.wrapper"]');
+
+  if (isRepost && texts.length >= 2) {
+    return `Repost note:\n${texts[0]}\n\nReposted content:\n${texts.slice(1).join('\n\n')}`;
+  }
+
+  if (hasQuoteCard && texts.length >= 2) {
+    return `Quote comment:\n${texts[0]}\n\nQuoted post:\n${texts.slice(1).join('\n\n')}`;
+  }
+
+  return texts.map((text, index) => `[Part ${index + 1}]\n${text}`).join('\n\n');
 }
 
 function findInlineReply(article) {

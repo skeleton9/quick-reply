@@ -25,7 +25,7 @@ Other requirements:
 - Vary tone: thoughtful, witty, supportive, question-based.
 - Return ONLY a valid JSON array of 4 strings. No markdown, no explanation.
 
-Original post:
+Original post (may include repost note and embedded content):
 """
 ${tweetText}
 """`;
