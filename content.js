@@ -174,6 +174,29 @@ function mountPanel(panel, target) {
   target.node.insertAdjacentElement(target.position, panel);
 }
 
+async function copyReplyText(text, copyBtn) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.cssText = 'position:fixed;left:-9999px;top:0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  }
+
+  copyBtn.classList.add('qr-copy-done');
+  copyBtn.setAttribute('aria-label', '已复制');
+  copyBtn.title = '已复制';
+  setTimeout(() => {
+    copyBtn.classList.remove('qr-copy-done');
+    copyBtn.setAttribute('aria-label', '复制');
+    copyBtn.title = '复制';
+  }, 1500);
+}
+
 function showPanel(replies, composer, article) {
   removePanel();
 
@@ -197,16 +220,38 @@ function showPanel(replies, composer, article) {
   list.className = 'qr-list';
 
   replies.forEach((reply) => {
+    const row = document.createElement('div');
+    row.className = 'qr-item-row';
+
     const item = document.createElement('button');
     item.className = 'qr-item';
     item.type = 'button';
     item.textContent = reply;
     item.addEventListener('click', async () => {
       await fillComposer(composer, reply);
-      item.classList.add('qr-item-selected');
+      row.classList.add('qr-item-selected');
       setTimeout(removePanel, 400);
     });
-    list.appendChild(item);
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'qr-copy';
+    copyBtn.type = 'button';
+    copyBtn.title = '复制';
+    copyBtn.setAttribute('aria-label', '复制');
+    copyBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="qr-copy-icon">
+        <path fill="currentColor" d="M7 6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6zm2-4a4 4 0 0 0-4 4v12a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4V6a4 4 0 0 0-4-4H9zm-2 4a2 2 0 0 1 2-2h1v1a3 3 0 0 0 3 3h7v9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6z"/>
+      </svg>
+    `;
+    copyBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      copyReplyText(reply, copyBtn);
+    });
+
+    row.appendChild(item);
+    row.appendChild(copyBtn);
+    list.appendChild(row);
   });
 
   panel.appendChild(list);
