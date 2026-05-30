@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Quick Reply for X",
-  "version": "1.0.7",
-  "description": "为 X 帖子生成 AI 建议回复，一键填入回复框",
+  "version": "1.1.8",
+  "description": "为 X 帖子生成 AI 建议回复，支持文字卡片图片插入",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -20,8 +20,8 @@
   "content_scripts": [
     {
       "matches": ["https://x.com/*", "https://twitter.com/*"],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "js": ["card.js", "content.js"],
+      "css": ["content.css", "card.css"],
       "run_at": "document_idle"
     }
   ],

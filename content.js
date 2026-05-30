@@ -276,8 +276,37 @@ function showPanel(replies, composer, article) {
       copyReplyText(reply, copyBtn);
     });
 
+    const cardBtn = document.createElement('button');
+    cardBtn.className = 'qr-card';
+    cardBtn.type = 'button';
+    cardBtn.title = '生成文字卡片';
+    cardBtn.setAttribute('aria-label', '生成文字卡片');
+    cardBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="qr-card-icon">
+        <path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v12h16V6H4zm3 3h10v2H7V9zm0 4h7v2H7v-2z"/>
+      </svg>
+    `;
+    cardBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      let composer = findComposer(article);
+      if (!composer || !isVisible(composer)) {
+        article.querySelector('[data-testid="reply"]')?.click();
+        composer = await waitForComposer(article);
+      }
+
+      if (!composer) {
+        alert('请先打开回复框');
+        return;
+      }
+
+      window.QuickReplyCard?.showCardEditor({ text: reply, article });
+    });
+
     row.appendChild(item);
     row.appendChild(copyBtn);
+    row.appendChild(cardBtn);
     list.appendChild(row);
   });
 
