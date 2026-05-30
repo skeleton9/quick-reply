@@ -86,9 +86,45 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 10px;
   font-weight: 700;
   color: rgb(15, 20, 25);
+}
+
+.qr-panel-title {
+  min-width: 0;
+}
+
+.qr-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.qr-regenerate {
+  border: 1px solid rgb(207, 217, 222);
+  border-radius: 9999px;
+  background: rgb(255, 255, 255);
+  color: rgb(29, 155, 240);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.qr-regenerate:hover {
+  background: rgba(29, 155, 240, 0.08);
+  border-color: rgb(29, 155, 240);
+}
+
+.qr-regenerate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .qr-close {

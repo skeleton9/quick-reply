@@ -224,24 +224,77 @@ async function copyReplyText(text, copyBtn) {
   }, 1500);
 }
 
-function showPanel(replies, composer, article) {
-  removePanel();
+async function fetchReplies(tweetText) {
+  const response = await chrome.runtime.sendMessage({
+    type: 'GENERATE_REPLIES',
+    tweetText,
+  });
 
-  const panel = document.createElement('div');
-  panel.setAttribute(PANEL_ATTR, 'true');
-  panel.className = 'qr-panel';
+  if (!response?.ok) {
+    throw new Error(response?.error || '未知错误');
+  }
 
+  return response.replies;
+}
+
+async function generateAndShowPanel(article, composer, tweetText) {
+  showLoading(article, composer);
+
+  try {
+    const replies = await fetchReplies(tweetText);
+    showPanel(replies, composer, article, tweetText);
+  } catch (err) {
+    showError(err.message || String(err), article, composer, tweetText);
+  }
+}
+
+function createRegenerateButton(article, composer, tweetText) {
+  const btn = document.createElement('button');
+  btn.className = 'qr-regenerate';
+  btn.type = 'button';
+  btn.textContent = '重新生成';
+  btn.addEventListener('click', async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    await generateAndShowPanel(article, composer, tweetText);
+  });
+  return btn;
+}
+
+function createPanelHeader(title, article, composer, tweetText) {
   const header = document.createElement('div');
   header.className = 'qr-panel-header';
-  header.textContent = '选择一条建议回复：';
+
+  const titleEl = document.createElement('span');
+  titleEl.className = 'qr-panel-title';
+  titleEl.textContent = title;
+
+  const actions = document.createElement('div');
+  actions.className = 'qr-panel-actions';
+
+  if (tweetText) {
+    actions.appendChild(createRegenerateButton(article, composer, tweetText));
+  }
 
   const closeBtn = document.createElement('button');
   closeBtn.className = 'qr-close';
   closeBtn.textContent = '×';
   closeBtn.title = '关闭';
   closeBtn.addEventListener('click', removePanel);
-  header.appendChild(closeBtn);
-  panel.appendChild(header);
+  actions.appendChild(closeBtn);
+
+  header.appendChild(titleEl);
+  header.appendChild(actions);
+  return header;
+}
+
+function showPanel(replies, composer, article, tweetText) {
+  removePanel();
+
+  const panel = document.createElement('div');
+  panel.setAttribute(PANEL_ATTR, 'true');
+  panel.className = 'qr-panel';
+  panel.appendChild(createPanelHeader('选择一条建议回复：', article, composer, tweetText));
 
   const list = document.createElement('div');
   list.className = 'qr-list';
@@ -314,14 +367,19 @@ function showPanel(replies, composer, article) {
   mountPanel(panel, getPanelMountTarget(article, composer));
 }
 
-function showError(message, article, composer) {
+function showError(message, article, composer, tweetText) {
   removePanel();
 
   const panel = document.createElement('div');
   panel.setAttribute(PANEL_ATTR, 'true');
   panel.className = 'qr-panel qr-panel-error';
-  panel.innerHTML = `<div class="qr-panel-header">生成失败<button class="qr-close" title="关闭">×</button></div><p class="qr-error-text">${escapeHtml(message)}</p>`;
-  panel.querySelector('.qr-close').addEventListener('click', removePanel);
+  panel.appendChild(createPanelHeader('生成失败', article, composer, tweetText));
+
+  const errorText = document.createElement('p');
+  errorText.className = 'qr-error-text';
+  errorText.textContent = message;
+  panel.appendChild(errorText);
+
   mountPanel(panel, getPanelMountTarget(article, composer));
 }
 
@@ -368,25 +426,9 @@ async function handleQuickReply(article, btn) {
   }
 
   composer.focus();
-  showLoading(article, composer);
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'GENERATE_REPLIES',
-      tweetText,
-    });
-
-    if (!response?.ok) {
-      throw new Error(response?.error || '未知错误');
-    }
-
-    showPanel(response.replies, composer, article);
-  } catch (err) {
-    showError(err.message || String(err), article, composer);
-  } finally {
-    btn.disabled = false;
-    btn.classList.remove('qr-loading');
-  }
+  await generateAndShowPanel(article, composer, tweetText);
+  btn.disabled = false;
+  btn.classList.remove('qr-loading');
 }
 
 function createButton(article, variant = 'action') {
