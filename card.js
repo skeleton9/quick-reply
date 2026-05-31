@@ -91,6 +91,195 @@ function getFontValue(id) {
   return CARD_FONTS.find((f) => f.id === id)?.value || CARD_FONTS[0].value;
 }
 
+function parseHighlightMarkup(text) {
+  const plainChars = [];
+  const highlights = [];
+  const source = String(text);
+  let i = 0;
+
+  while (i < source.length) {
+    if (source[i] === '\n') {
+      plainChars.push('\n');
+      highlights.push(false);
+      i += 1;
+      continue;
+    }
+
+    if (source.slice(i, i + 2) === '==') {
+      const end = source.indexOf('==', i + 2);
+      if (end !== -1) {
+        const inner = source.slice(i + 2, end);
+        for (const ch of inner) {
+          plainChars.push(ch);
+          highlights.push(true);
+        }
+        i = end + 2;
+        continue;
+      }
+    }
+
+    plainChars.push(source[i]);
+    highlights.push(false);
+    i += 1;
+  }
+
+  return { plainText: plainChars.join(''), highlights };
+}
+
+function plainToRuns(plainText, highlights) {
+  const runs = [];
+  for (let i = 0; i < plainText.length; i += 1) {
+    const highlighted = highlights[i] === true;
+    const last = runs[runs.length - 1];
+    if (last && last.highlight === highlighted) {
+      last.text += plainText[i];
+    } else {
+      runs.push({ text: plainText[i], highlight: highlighted });
+    }
+  }
+  return runs;
+}
+
+function splitRunsByParagraph(runs) {
+  const paragraphs = [[]];
+
+  for (const run of runs) {
+    const parts = run.text.split('\n');
+    for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+      if (partIndex > 0) paragraphs.push([]);
+      if (parts[partIndex]) {
+        paragraphs[paragraphs.length - 1].push({
+          text: parts[partIndex],
+          highlight: run.highlight,
+        });
+      }
+    }
+  }
+
+  return paragraphs.length ? paragraphs : [[]];
+}
+
+function runsToUnits(runs) {
+  const units = [];
+  for (const run of runs) {
+    for (const unit of splitIntoWrapUnits(run.text)) {
+      units.push({ ...unit, highlight: run.highlight });
+    }
+  }
+  return units;
+}
+
+function unitsToText(units) {
+  return units.map((unit) => unit.text).join('');
+}
+
+function unitsToSegments(units) {
+  const segments = [];
+  for (const unit of units) {
+    const last = segments[segments.length - 1];
+    if (last && last.highlight === unit.highlight) {
+      last.text += unit.text;
+    } else {
+      segments.push({ text: unit.text, highlight: unit.highlight });
+    }
+  }
+  return segments;
+}
+
+function wrapHighlightedUnits(ctx, units, maxWidth) {
+  const lines = [];
+  let lineUnits = [];
+
+  for (const unit of units) {
+    const candidateUnits = lineUnits.length ? [...lineUnits, unit] : [unit];
+    const candidate = unitsToText(candidateUnits);
+
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      lineUnits = candidateUnits;
+      continue;
+    }
+
+    if (lineUnits.length) {
+      lines.push(unitsToSegments(lineUnits));
+      lineUnits = [];
+    }
+
+    if (unit.type === 'space') continue;
+
+    if (ctx.measureText(unit.text).width <= maxWidth) {
+      lineUnits = [unit];
+    } else {
+      lines.push([{ text: unit.text, highlight: unit.highlight }]);
+    }
+  }
+
+  if (lineUnits.length) {
+    lines.push(unitsToSegments(lineUnits));
+  }
+
+  return lines;
+}
+
+function wrapHighlightedText(ctx, plainText, highlights, maxWidth) {
+  const runs = plainToRuns(plainText, highlights);
+  const paragraphs = splitRunsByParagraph(runs);
+  const segmentLines = [];
+
+  for (const paragraphRuns of paragraphs) {
+    if (!paragraphRuns.length || !paragraphRuns.some((run) => run.text.trim())) {
+      segmentLines.push([{ text: '', highlight: false }]);
+      continue;
+    }
+
+    const units = runsToUnits(paragraphRuns);
+    segmentLines.push(...wrapHighlightedUnits(ctx, units, maxWidth));
+  }
+
+  return segmentLines.length ? segmentLines : [[{ text: '', highlight: false }]];
+}
+
+function getHighlightStyle(template) {
+  if (template.gradient) {
+    return { bg: 'rgba(255, 255, 255, 0.38)', color: '#ffffff' };
+  }
+  if (template.id === 'dark') {
+    return { bg: template.accent || '#1d9bf0', color: '#ffffff' };
+  }
+  if (template.accent) {
+    return { bg: `${template.accent}40`, color: template.color };
+  }
+  return { bg: '#fef08a', color: '#0f1419' };
+}
+
+function drawCenteredHighlightedLine(ctx, segments, centerX, y, fontSize, template) {
+  const fullText = segments.map((segment) => segment.text).join('');
+  if (!fullText) return;
+
+  const totalWidth = ctx.measureText(fullText).width;
+  let x = centerX - totalWidth / 2;
+  const highlightStyle = getHighlightStyle(template);
+  const padX = Math.max(4, Math.round(fontSize * 0.08));
+  const bgHeight = fontSize * 1.08 + Math.max(2, Math.round(fontSize * 0.06));
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  for (const segment of segments) {
+    if (!segment.text) continue;
+
+    const width = ctx.measureText(segment.text).width;
+    if (segment.highlight) {
+      ctx.fillStyle = highlightStyle.bg;
+      ctx.fillRect(x - padX, y - fontSize * 0.82, width + padX * 2, bgHeight);
+      ctx.fillStyle = highlightStyle.color;
+    } else {
+      ctx.fillStyle = template.color;
+    }
+    ctx.fillText(segment.text, x, y);
+    x += width;
+  }
+}
+
 function isCjkChar(char) {
   return /[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/.test(char);
 }
@@ -101,8 +290,15 @@ function splitIntoWrapUnits(paragraph) {
 
   while (i < paragraph.length) {
     const ch = paragraph[i];
+
     if (/\s/.test(ch)) {
+      let text = ch;
       i += 1;
+      while (i < paragraph.length && /\s/.test(paragraph[i])) {
+        text += paragraph[i];
+        i += 1;
+      }
+      units.push({ type: 'space', text });
       continue;
     }
 
@@ -127,36 +323,32 @@ function splitIntoWrapUnits(paragraph) {
 function wrapParagraph(ctx, paragraph, maxWidth) {
   const units = splitIntoWrapUnits(paragraph);
   const lines = [];
-  let line = '';
+  let lineUnits = [];
 
   for (const unit of units) {
-    let candidate;
-    if (!line) {
-      candidate = unit.text;
-    } else if (unit.type === 'word') {
-      candidate = `${line} ${unit.text}`;
-    } else {
-      candidate = line + unit.text;
-    }
+    const candidateUnits = lineUnits.length ? [...lineUnits, unit] : [unit];
+    const candidate = unitsToText(candidateUnits);
 
     if (ctx.measureText(candidate).width <= maxWidth) {
-      line = candidate;
+      lineUnits = candidateUnits;
       continue;
     }
 
-    if (line) {
-      lines.push(line);
-      line = '';
+    if (lineUnits.length) {
+      lines.push(unitsToText(lineUnits));
+      lineUnits = [];
     }
 
+    if (unit.type === 'space') continue;
+
     if (ctx.measureText(unit.text).width <= maxWidth) {
-      line = unit.text;
+      lineUnits = [unit];
     } else {
       lines.push(unit.text);
     }
   }
 
-  if (line) lines.push(line);
+  if (lineUnits.length) lines.push(unitsToText(lineUnits));
   return lines;
 }
 
@@ -177,15 +369,19 @@ function wrapText(ctx, text, maxWidth) {
 
 function layoutFits(ctx, layout, maxWidth, maxHeight) {
   if (layout.totalHeight > maxHeight) return false;
-  return layout.lines.every((line) => !line || ctx.measureText(line).width <= maxWidth);
+  return layout.segmentLines.every((segments) => {
+    const line = segments.map((segment) => segment.text).join('');
+    return !line || ctx.measureText(line).width <= maxWidth;
+  });
 }
 
 function measureLayout(ctx, text, maxWidth, maxHeight, fontFamily, fontWeight, fontSize) {
+  const { plainText, highlights } = parseHighlightMarkup(String(text).trim() || ' ');
   ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
-  const lines = wrapText(ctx, text, maxWidth);
+  const segmentLines = wrapHighlightedText(ctx, plainText, highlights, maxWidth);
   const lineHeight = fontSize * 1.38;
-  const totalHeight = lines.length * lineHeight;
-  return { lines, lineHeight, totalHeight, fontSize };
+  const totalHeight = segmentLines.length * lineHeight;
+  return { segmentLines, lineHeight, totalHeight, fontSize };
 }
 
 function autoFitLayout(ctx, text, maxWidth, maxHeight, fontFamily, fontWeight, maxSize = 80, minSize = 18) {
@@ -345,8 +541,15 @@ function renderCardCanvas(options) {
   ctx.font = `${fontWeight} ${layout.fontSize}px ${fontFamily}`;
 
   const startY = padding + (contentHeight - layout.totalHeight) / 2 + layout.fontSize;
-  layout.lines.forEach((line, index) => {
-    ctx.fillText(line, width / 2, startY + index * layout.lineHeight);
+  layout.segmentLines.forEach((segments, index) => {
+    drawCenteredHighlightedLine(
+      ctx,
+      segments,
+      width / 2,
+      startY + index * layout.lineHeight,
+      layout.fontSize,
+      template
+    );
   });
 
   drawCardFooter(
@@ -435,6 +638,69 @@ function saveCardPrefs(templateId, ratioId, fontId, footerText, footerFontSize) 
   });
 }
 
+function findHighlightRange(value, start, end) {
+  if (start !== end) {
+    const selected = value.slice(start, end);
+    const wrappedMatch = selected.match(/^==([\s\S]*)==$/);
+    if (wrappedMatch) {
+      return { open: start, close: end, inner: wrappedMatch[1] };
+    }
+
+    const openBefore = value.slice(0, start).endsWith('==');
+    const closeAfter = value.slice(end).startsWith('==');
+    if (openBefore && closeAfter) {
+      return { open: start - 2, close: end + 2, inner: selected };
+    }
+
+    return null;
+  }
+
+  const open = value.lastIndexOf('==', start);
+  if (open === -1) return null;
+
+  const close = value.indexOf('==', open + 2);
+  if (close === -1 || start < open || start >= close + 2) return null;
+
+  return {
+    open,
+    close: close + 2,
+    inner: value.slice(open + 2, close),
+  };
+}
+
+function wrapSelectionWithHighlight(textarea) {
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  if (start === end) return false;
+
+  const value = textarea.value;
+  if (findHighlightRange(value, start, end)) return false;
+
+  const selected = value.slice(start, end);
+  const wrapped = `==${selected}==`;
+  textarea.value = value.slice(0, start) + wrapped + value.slice(end);
+  textarea.selectionStart = start + 2;
+  textarea.selectionEnd = start + 2 + selected.length;
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  return true;
+}
+
+function unwrapSelectionHighlight(textarea) {
+  const range = findHighlightRange(
+    textarea.value,
+    textarea.selectionStart,
+    textarea.selectionEnd
+  );
+  if (!range) return false;
+
+  textarea.value =
+    textarea.value.slice(0, range.open) + range.inner + textarea.value.slice(range.close);
+  textarea.selectionStart = range.open;
+  textarea.selectionEnd = range.open + range.inner.length;
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  return true;
+}
+
 function removeCardOverlay() {
   document.querySelector(`[${CARD_OVERLAY_ATTR}]`)?.remove();
 }
@@ -465,7 +731,12 @@ async function showCardEditor({ text, article }) {
           <div class="qr-card-section">
             <label class="qr-card-field">
               <span>卡片文字</span>
-              <textarea class="qr-card-text" rows="5" placeholder="输入卡片内容"></textarea>
+              <div class="qr-card-text-toolbar">
+                <button type="button" class="qr-card-highlight-btn">高亮选中</button>
+                <button type="button" class="qr-card-unhighlight-btn">取消高亮</button>
+                <span class="qr-card-text-hint">用 ==文字== 标记高亮</span>
+              </div>
+              <textarea class="qr-card-text" rows="5" placeholder="输入卡片内容，可用 ==文字== 高亮部分内容"></textarea>
             </label>
             <label class="qr-card-field qr-card-field-row">
               <span>正文字号</span>
@@ -513,6 +784,8 @@ async function showCardEditor({ text, article }) {
 
   const previewCanvas = overlay.querySelector('.qr-card-preview');
   const textArea = overlay.querySelector('.qr-card-text');
+  const highlightBtn = overlay.querySelector('.qr-card-highlight-btn');
+  const unhighlightBtn = overlay.querySelector('.qr-card-unhighlight-btn');
   const templateSelect = overlay.querySelector('.qr-card-template');
   const ratioSelect = overlay.querySelector('.qr-card-ratio');
   const fontSelect = overlay.querySelector('.qr-card-font');
@@ -595,6 +868,16 @@ async function showCardEditor({ text, article }) {
   }
 
   textArea.addEventListener('input', updatePreview);
+  highlightBtn.addEventListener('click', () => {
+    if (!wrapSelectionWithHighlight(textArea)) {
+      textArea.focus();
+    }
+  });
+  unhighlightBtn.addEventListener('click', () => {
+    if (!unwrapSelectionHighlight(textArea)) {
+      textArea.focus();
+    }
+  });
   footerInput.addEventListener('input', () => {
     persistPrefs();
     applyAutoFontSize();
