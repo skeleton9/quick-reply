@@ -2,6 +2,7 @@ const DEFAULT_CONFIG = {
   apiUrl: 'https://ark.cn-beijing.volces.com/api/v3/responses',
   model: 'deepseek-v3-2-251201',
   apiKey: '',
+  toneGuidance: 'thoughtful, witty, supportive, question-based',
 };
 
 async function getConfig() {
@@ -9,7 +10,8 @@ async function getConfig() {
   return { ...DEFAULT_CONFIG, ...stored };
 }
 
-function buildPrompt(tweetText) {
+function buildPrompt(tweetText, toneGuidance) {
+  const tone = toneGuidance || DEFAULT_CONFIG.toneGuidance;
   return `You are helping draft replies for an X (Twitter) post.
 
 Task: Generate exactly 4 suggested reply options.
@@ -22,7 +24,7 @@ CRITICAL — Language rule (highest priority):
 
 Other requirements:
 - Each reply must be under 280 characters.
-- Vary tone: thoughtful, witty, supportive, question-based.
+- Vary tone: ${tone}.
 - Return ONLY a valid JSON array of 4 strings. No markdown, no explanation.
 
 Original post (may include repost note and embedded content):
@@ -93,7 +95,7 @@ async function callLLM(tweetText) {
           content: [
             {
               type: 'input_text',
-              text: buildPrompt(tweetText),
+              text: buildPrompt(tweetText, config.toneGuidance),
             },
           ],
         },

@@ -28,7 +28,21 @@
       border-radius: 8px;
       font: inherit;
     }
+    textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #cfd9de;
+      border-radius: 8px;
+      font: inherit;
+      resize: vertical;
+      min-height: 72px;
+      line-height: 1.5;
+    }
     input:focus {
+      outline: 2px solid #1d9bf0;
+      border-color: #1d9bf0;
+    }
+    textarea:focus {
       outline: 2px solid #1d9bf0;
       border-color: #1d9bf0;
     }
@@ -60,6 +74,10 @@
 
   <label for="model">Model</label>
   <input id="model" type="text" />
+
+  <label for="toneGuidance">语气风格</label>
+  <textarea id="toneGuidance" rows="3"></textarea>
+  <p class="hint">写入 prompt 的 “Vary tone:” 说明，例如 thoughtful, witty, supportive, question-based</p>
 
   <div class="actions">
     <button id="save">保存</button>
