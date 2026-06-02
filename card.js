@@ -62,6 +62,28 @@ const CARD_TEMPLATES = [
     fontWeight: '600',
     accent: '#10b981',
   },
+  {
+    id: 'orange',
+    name: '暖橙',
+    padding: 88,
+    background: '#fffbf5',
+    color: '#292524',
+    fontWeight: '600',
+    accent: '#f97316',
+    highlightBg: '#f97316',
+    highlightColor: '#ffffff',
+  },
+  {
+    id: 'lime',
+    name: '亮绿',
+    padding: 88,
+    background: '#f7fee7',
+    color: '#1a2e05',
+    fontWeight: '600',
+    accent: '#22c55e',
+    highlightBg: '#4ade80',
+    highlightColor: '#14532d',
+  },
 ];
 
 const CARD_FONTS = [
@@ -239,6 +261,12 @@ function wrapHighlightedText(ctx, plainText, highlights, maxWidth) {
 }
 
 function getHighlightStyle(template) {
+  if (template.highlightBg) {
+    return {
+      bg: template.highlightBg,
+      color: template.highlightColor || template.color,
+    };
+  }
   if (template.gradient) {
     return { bg: 'rgba(255, 255, 255, 0.38)', color: '#ffffff' };
   }
