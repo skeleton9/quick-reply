@@ -47,20 +47,36 @@ function formatApiError(status, errText) {
   }
 }
 
-function buildPrompt(tweetText, toneGuidance) {
+function buildPrompt(tweetText, toneGuidance, composeMode) {
   const tone = toneGuidance || DEFAULT_CONFIG.toneGuidance;
-  return `You are helping draft replies for an X (Twitter) post.
+  const isQuote = composeMode === 'quote';
 
-Task: Generate exactly 4 suggested reply options.
+  const task = isQuote
+    ? `You are helping draft quote-tweet commentary for an X (Twitter) post.
+The user will publish a NEW post that embeds the original below (quote tweet), not a threaded reply.
+
+Task: Generate exactly 4 suggested quote-tweet comment options.`
+    : `You are helping draft replies for an X (Twitter) post.
+
+Task: Generate exactly 4 suggested reply options.`;
+
+  const styleRules = isQuote
+    ? `- Write as standalone commentary above the embedded quoted post
+- Do NOT write as a direct @mention thread reply unless the original already uses @mentions
+- Suitable for sharing to your own timeline with the quoted post attached`
+    : `- Write as replies in the conversation under the post`;
+
+  return `${task}
 
 CRITICAL — Language rule (highest priority):
 1. Detect the language of the original post below.
-2. Write ALL 4 replies in that SAME language only.
+2. Write ALL 4 options in that SAME language only.
 3. Do not translate the post. Do not reply in a different language.
-4. If the post is in English, replies must be English. If Chinese, replies must be Chinese. Same for any other language.
+4. If the post is in English, options must be English. If Chinese, options must be Chinese. Same for any other language.
 
 Other requirements:
-- Each reply must be under 280 characters.
+${styleRules}
+- Each option must be under 280 characters.
 - Vary tone: ${tone}.
 - Return ONLY a valid JSON array of 4 strings. No markdown, no explanation.
 
@@ -138,13 +154,14 @@ function buildRequestBody(config, prompt) {
   };
 }
 
-async function callLLM(tweetText) {
+async function callLLM(tweetText, composeMode) {
   const config = await getConfig();
   if (!config.apiKey) {
     throw new Error('请先在插件设置中配置 API Key');
   }
 
-  const prompt = buildPrompt(sanitizeText(tweetText), config.toneGuidance);
+  const mode = composeMode === 'quote' ? 'quote' : 'reply';
+  const prompt = buildPrompt(sanitizeText(tweetText), config.toneGuidance, mode);
   const response = await fetch(config.apiUrl, {
     method: 'POST',
     headers: {
@@ -176,7 +193,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  callLLM(message.tweetText)
+  callLLM(message.tweetText, message.composeMode)
     .then((replies) => sendResponse({ ok: true, replies }))
     .catch((err) => sendResponse({ ok: false, error: err.message }));
 

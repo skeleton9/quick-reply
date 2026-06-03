@@ -1,6 +1,10 @@
 const BUTTON_ATTR = 'data-quick-reply-btn';
 const PANEL_ATTR = 'data-quick-reply-panel';
 
+function isQuoteMode(composeMode) {
+  return composeMode === 'quote';
+}
+
 function getTweetText(article) {
   const inlineReply = article.querySelector('[data-testid="inline_reply_offscreen"]');
   const texts = [];
@@ -67,6 +71,54 @@ async function waitForComposer(article, timeoutMs = 4000) {
     await sleep(100);
   }
   return findComposer(article);
+}
+
+function findQuoteMenuButton(article) {
+  for (const dropdown of document.querySelectorAll('[data-testid="Dropdown"]')) {
+    if (!isVisible(dropdown)) continue;
+    const quote = dropdown.querySelector('[data-testid="quoteTweet"]');
+    if (quote && !article.contains(quote)) return quote;
+  }
+
+  for (const item of document.querySelectorAll('[role="menuitem"]')) {
+    const label = item.innerText?.trim() || '';
+    if (/^(quote|引用)$/i.test(label) && isVisible(item)) return item;
+  }
+
+  return null;
+}
+
+async function clickQuoteTweet(article) {
+  const retweetBtn = article.querySelector('[data-testid="retweet"]');
+  if (!retweetBtn) return false;
+
+  retweetBtn.click();
+  await sleep(250);
+
+  const quoteBtn = findQuoteMenuButton(article);
+  if (!quoteBtn) {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    return false;
+  }
+
+  quoteBtn.click();
+  return true;
+}
+
+async function openComposer(article, composeMode) {
+  const existing = findComposer(article);
+  if (existing && isVisible(existing)) return existing;
+
+  if (isQuoteMode(composeMode)) {
+    const opened = await clickQuoteTweet(article);
+    if (!opened) {
+      throw new Error('无法打开引用推文编辑器，请手动点击「转帖」→「引用」');
+    }
+  } else {
+    article.querySelector('[data-testid="reply"]')?.click();
+  }
+
+  return waitForComposer(article);
 }
 
 function sleep(ms) {
@@ -224,10 +276,11 @@ async function copyReplyText(text, copyBtn) {
   }, 1500);
 }
 
-async function fetchReplies(tweetText) {
+async function fetchReplies(tweetText, composeMode) {
   const response = await chrome.runtime.sendMessage({
     type: 'GENERATE_REPLIES',
     tweetText,
+    composeMode,
   });
 
   if (!response?.ok) {
@@ -237,31 +290,39 @@ async function fetchReplies(tweetText) {
   return response.replies;
 }
 
-async function generateAndShowPanel(article, composer, tweetText) {
-  showLoading(article, composer);
+async function generateAndShowPanel(article, composer, tweetText, composeMode) {
+  showLoading(article, composer, composeMode);
 
   try {
-    const replies = await fetchReplies(tweetText);
-    showPanel(replies, composer, article, tweetText);
+    const replies = await fetchReplies(tweetText, composeMode);
+    showPanel(replies, composer, article, tweetText, composeMode);
   } catch (err) {
-    showError(err.message || String(err), article, composer, tweetText);
+    showError(err.message || String(err), article, composer, tweetText, composeMode);
   }
 }
 
-function createRegenerateButton(article, composer, tweetText) {
+function createRegenerateButton(article, composer, tweetText, composeMode) {
   const btn = document.createElement('button');
   btn.className = 'qr-regenerate';
   btn.type = 'button';
   btn.textContent = '重新生成';
   btn.addEventListener('click', async () => {
-    if (btn.disabled) return;
-    btn.disabled = true;
-    await generateAndShowPanel(article, composer, tweetText);
+    if (btn.classList.contains('qr-loading')) return;
+    btn.classList.add('qr-loading');
+    try {
+      await generateAndShowPanel(article, composer, tweetText, composeMode);
+    } finally {
+      btn.classList.remove('qr-loading');
+    }
   });
   return btn;
 }
 
-function createPanelHeader(title, article, composer, tweetText) {
+function getPanelTitle(composeMode) {
+  return isQuoteMode(composeMode) ? '选择一条引用评论：' : '选择一条建议回复：';
+}
+
+function createPanelHeader(title, article, composer, tweetText, composeMode) {
   const header = document.createElement('div');
   header.className = 'qr-panel-header';
 
@@ -273,7 +334,7 @@ function createPanelHeader(title, article, composer, tweetText) {
   actions.className = 'qr-panel-actions';
 
   if (tweetText) {
-    actions.appendChild(createRegenerateButton(article, composer, tweetText));
+    actions.appendChild(createRegenerateButton(article, composer, tweetText, composeMode));
   }
 
   const closeBtn = document.createElement('button');
@@ -288,13 +349,13 @@ function createPanelHeader(title, article, composer, tweetText) {
   return header;
 }
 
-function showPanel(replies, composer, article, tweetText) {
+function showPanel(replies, composer, article, tweetText, composeMode) {
   removePanel();
 
   const panel = document.createElement('div');
   panel.setAttribute(PANEL_ATTR, 'true');
   panel.className = 'qr-panel';
-  panel.appendChild(createPanelHeader('选择一条建议回复：', article, composer, tweetText));
+  panel.appendChild(createPanelHeader(getPanelTitle(composeMode), article, composer, tweetText, composeMode));
 
   const list = document.createElement('div');
   list.className = 'qr-list';
@@ -345,8 +406,7 @@ function showPanel(replies, composer, article, tweetText) {
 
       let composer = findComposer(article);
       if (!composer || !isVisible(composer)) {
-        article.querySelector('[data-testid="reply"]')?.click();
-        composer = await waitForComposer(article);
+        composer = await openComposer(article, composeMode);
       }
 
       if (!composer) {
@@ -367,13 +427,13 @@ function showPanel(replies, composer, article, tweetText) {
   mountPanel(panel, getPanelMountTarget(article, composer));
 }
 
-function showError(message, article, composer, tweetText) {
+function showError(message, article, composer, tweetText, composeMode) {
   removePanel();
 
   const panel = document.createElement('div');
   panel.setAttribute(PANEL_ATTR, 'true');
   panel.className = 'qr-panel qr-panel-error';
-  panel.appendChild(createPanelHeader('生成失败', article, composer, tweetText));
+  panel.appendChild(createPanelHeader('生成失败', article, composer, tweetText, composeMode));
 
   const errorText = document.createElement('p');
   errorText.className = 'qr-error-text';
@@ -383,13 +443,14 @@ function showError(message, article, composer, tweetText) {
   mountPanel(panel, getPanelMountTarget(article, composer));
 }
 
-function showLoading(article, composer) {
+function showLoading(article, composer, composeMode) {
   removePanel();
 
   const panel = document.createElement('div');
   panel.setAttribute(PANEL_ATTR, 'true');
   panel.className = 'qr-panel qr-panel-loading';
-  panel.innerHTML = '<div class="qr-spinner"></div><span>正在生成建议回复…</span>';
+  const loadingText = isQuoteMode(composeMode) ? '正在生成引用评论…' : '正在生成建议回复…';
+  panel.innerHTML = `<div class="qr-spinner"></div><span>${loadingText}</span>`;
   mountPanel(panel, getPanelMountTarget(article, composer));
 }
 
@@ -401,53 +462,62 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-async function handleQuickReply(article, btn) {
+async function handleQuickReply(article, btn, composeMode) {
   const tweetText = getTweetText(article);
   if (!tweetText) {
     alert('无法读取帖子内容');
     return;
   }
 
-  btn.disabled = true;
+  if (btn.classList.contains('qr-loading')) return;
   btn.classList.add('qr-loading');
 
-  let composer = findComposer(article);
-  if (!composer || !isVisible(composer)) {
-    const replyBtn = article.querySelector('[data-testid="reply"]');
-    replyBtn?.click();
-    composer = await waitForComposer(article);
-  }
+  try {
+    const composer = await openComposer(article, composeMode);
+    if (!composer) {
+      alert(
+        isQuoteMode(composeMode)
+          ? '未找到引用输入框，请先点击「转帖」→「引用」'
+          : '未找到回复输入框，请先点击回复按钮',
+      );
+      return;
+    }
 
-  if (!composer) {
-    btn.disabled = false;
+    composer.focus();
+    await generateAndShowPanel(article, composer, tweetText, composeMode);
+  } catch (err) {
+    alert(err.message || String(err));
+  } finally {
     btn.classList.remove('qr-loading');
-    alert('未找到回复输入框，请先点击回复按钮');
-    return;
   }
-
-  composer.focus();
-  await generateAndShowPanel(article, composer, tweetText);
-  btn.disabled = false;
-  btn.classList.remove('qr-loading');
 }
 
-function createButton(article, variant = 'action') {
+function createButton(article, variant, composeMode) {
+  const isQuote = composeMode === 'quote';
+  const isInline = variant === 'inline';
+
   const btn = document.createElement('button');
   btn.setAttribute(BUTTON_ATTR, variant);
-  btn.className = variant === 'inline' ? 'qr-trigger qr-trigger-inline' : 'qr-trigger';
+  btn.className = isInline
+    ? 'qr-trigger qr-trigger-inline'
+    : isQuote
+      ? 'qr-trigger qr-trigger-quote'
+      : 'qr-trigger';
   btn.type = 'button';
-  btn.title = 'AI 建议回复';
-  btn.setAttribute('aria-label', 'AI 建议回复');
-  btn.innerHTML = `
-    <svg viewBox="0 0 24 24" aria-hidden="true" class="qr-icon">
-      <path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2zM5 16l.8 2.4L8 19.2l-2.2.8L5 22.4l-.8-2.4L2 19.2l2.2-.8L5 16zm14 0l.8 2.4L20 19.2l-2.2.8 1.4 2.4-.8-2.4L16 19.2l2.2-.8 1.4-2.4z" fill="currentColor"/>
-    </svg>
-    <span class="qr-label">${variant === 'inline' ? '建议回复' : 'AI'}</span>
-  `;
+  btn.title = isQuote ? 'AI 引用推文' : 'AI 建议回复';
+  btn.setAttribute('aria-label', btn.title);
+
+  const icon = isQuote
+    ? '<span class="qr-icon qr-emoji" aria-hidden="true">🚀</span>'
+    : `<svg viewBox="0 0 24 24" aria-hidden="true" class="qr-icon"><path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2zM5 16l.8 2.4L8 19.2l-2.2.8L5 22.4l-.8-2.4L2 19.2l2.2-.8L5 16zm14 0l.8 2.4L20 19.2l-2.2.8 1.4 2.4-.8-2.4L16 19.2l2.2-.8 1.4-2.4z" fill="currentColor"/></svg>`;
+
+  const label = isInline ? '建议回复' : isQuote ? '引' : 'AI';
+  btn.innerHTML = `${icon}<span class="qr-label">${label}</span>`;
+
   btn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    handleQuickReply(article, btn);
+    handleQuickReply(article, btn, composeMode);
   });
   return btn;
 }
@@ -466,18 +536,85 @@ function findTweetArticles() {
   return [...articles].filter((article) => article.querySelector('[data-testid="reply"]'));
 }
 
-function injectActionBarButton(article) {
-  if (article.querySelector(`[${BUTTON_ATTR}="action"]`)) return;
+const ACTION_MARKERS = ['reply', 'retweet', 'like', 'bookmark', 'share'];
 
-  const actionBar = findActionBar(article);
-  if (!actionBar) return;
+function getToolbarRow(group) {
+  let row = group.querySelector(':scope > div') || group;
+  while (row.children.length === 1) {
+    const only = row.firstElementChild;
+    if (!only?.querySelector('[data-testid="reply"]')) break;
+    row = only;
+  }
+  return row;
+}
+
+function getToolbarColumns(article) {
+  const group = article.querySelector('[data-testid="reply"]')?.closest('[role="group"]');
+  if (!group) return [];
+
+  const row = getToolbarRow(group);
+  return [...row.children].filter((cell) =>
+    ACTION_MARKERS.some((id) => cell.querySelector(`[data-testid="${id}"]`)),
+  );
+}
+
+function findActionCellFromButton(btn) {
+  if (!btn) return null;
+  const group = btn.closest('[role="group"]');
+  let el = btn;
+
+  while (el.parentElement && el.parentElement !== group) {
+    const parent = el.parentElement;
+    const hasSiblingAction = [...parent.children].some(
+      (sibling) => sibling !== el && ACTION_MARKERS.some((id) => sibling.querySelector(`[data-testid="${id}"]`)),
+    );
+    if (hasSiblingAction) return el;
+    el = parent;
+  }
+
+  return btn.parentElement;
+}
+
+function getActionCells(article) {
+  const columns = getToolbarColumns(article);
+  const replyBtn = article.querySelector('[data-testid="reply"]');
+  const retweetBtn = article.querySelector('[data-testid="retweet"]');
+
+  return {
+    reply:
+      columns.find((cell) => cell.querySelector('[data-testid="reply"]')) ||
+      findActionCellFromButton(replyBtn),
+    retweet:
+      columns.find((cell) => cell.querySelector('[data-testid="retweet"]')) ||
+      findActionCellFromButton(retweetBtn),
+  };
+}
+
+function isTriggerBesideAnchor(anchor, wrapper) {
+  return !!anchor && !!wrapper && anchor.nextElementSibling === wrapper;
+}
+
+function injectTriggerInCell(article, slot, variant, composeMode, anchorTestId) {
+  if (!slot) return;
+
+  const anchor = slot.querySelector(`[data-testid="${anchorTestId}"]`);
+  if (!anchor) return;
+
+  const existing = article.querySelector(`[${BUTTON_ATTR}="${variant}"]`);
+  const existingWrapper = existing?.closest('.qr-action');
+  if (isTriggerBesideAnchor(anchor, existingWrapper)) return;
+  existingWrapper?.remove();
 
   const wrapper = document.createElement('div');
-  wrapper.className = 'qr-action';
-  wrapper.appendChild(createButton(article, 'action'));
+  wrapper.className = composeMode === 'quote' ? 'qr-action qr-action-quote' : 'qr-action';
+  wrapper.appendChild(createButton(article, variant, composeMode));
+  anchor.insertAdjacentElement('afterend', wrapper);
+}
 
-  const flexRow = actionBar.querySelector(':scope > div') || actionBar;
-  flexRow.appendChild(wrapper);
+function injectActionBarButtons(article) {
+  const { reply, retweet } = getActionCells(article);
+  injectTriggerInCell(article, reply, 'reply', 'reply', 'reply');
+  injectTriggerInCell(article, retweet, 'quote', 'quote', 'retweet');
 }
 
 function injectInlineReplyButton(article) {
@@ -489,13 +626,13 @@ function injectInlineReplyButton(article) {
 
   const bar = document.createElement('div');
   bar.className = 'qr-inline-bar';
-  bar.appendChild(createButton(article, 'inline'));
+  bar.appendChild(createButton(article, 'inline', 'reply'));
   toolbar.insertAdjacentElement('beforebegin', bar);
 }
 
 function scanTweets() {
   findTweetArticles().forEach((article) => {
-    injectActionBarButton(article);
+    injectActionBarButtons(article);
     injectInlineReplyButton(article);
   });
 }
