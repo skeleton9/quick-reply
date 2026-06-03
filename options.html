@@ -38,7 +38,16 @@
       min-height: 72px;
       line-height: 1.5;
     }
-    input:focus {
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #cfd9de;
+      border-radius: 8px;
+      font: inherit;
+      background: #fff;
+    }
+    input:focus,
+    select:focus {
       outline: 2px solid #1d9bf0;
       border-color: #1d9bf0;
     }
@@ -63,11 +72,18 @@
 </head>
 <body>
   <h1>Quick Reply for X</h1>
-  <p class="desc">配置火山方舟 API，用于生成 X 帖子的建议回复。</p>
+  <p class="desc">配置 LLM API，用于生成 X 帖子的建议回复。</p>
+
+  <label for="apiMode">API 格式</label>
+  <select id="apiMode">
+    <option value="responses">Responses API（火山方舟等 Bearer 接口）</option>
+    <option value="openai">OpenAI Chat Completions</option>
+  </select>
+  <p class="hint">Responses → …/responses；OpenAI → …/chat/completions。URL 路径会自动决定请求格式</p>
 
   <label for="apiKey">API Key</label>
   <input id="apiKey" type="password" placeholder="Bearer token" autocomplete="off" />
-  <p class="hint">在火山方舟控制台获取，格式参考 docs/API_REF.md</p>
+  <p class="hint" id="apiKeyHint">火山方舟 Responses API Key，请求头使用 Bearer 认证</p>
 
   <label for="apiUrl">API URL</label>
   <input id="apiUrl" type="url" />
